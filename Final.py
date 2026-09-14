@@ -384,19 +384,34 @@ if menu == "Data & Rekap Pelanggan":
                         except Exception as e:
                             st.error(f"Gagal membuat kuitansi PDF: {e}")
 
-            # Form Edit Paket & Data Pelanggan yang Muncul Saat Tombol Edit Diklik
+            # Form Edit Paket & Data Pelanggan dengan Dropdown Profil MikroTik
             if st.session_state.get(f"form_edit_{pel_id}", False):
+                daftar_profil = ["default"]
+                connection, client = koneksi_mikrotik()
+                if client:
+                    try:
+                        profiles_mk = client.get_resource('/ppp/profile').get()
+                        daftar_profil = [p.get('name') for p in profiles_mk if p.get('name')]
+                    except Exception:
+                        pass
+                    finally:
+                        connection.disconnect()
+
+                if paket not in daftar_profil:
+                    daftar_profil.append(paket)
+                
+                index_paket = daftar_profil.index(paket) if paket in daftar_profil else 0
+
                 with st.form(key=f"form_ubah_{pel_id}"):
                     st.markdown(f"**Edit Data Pelanggan: {nama}**")
                     new_alias = st.text_input("Nama Alias / Lengkap", value=alias)
-                    new_paket = st.text_input("Profil / Paket MikroTik", value=paket)
+                    new_paket = st.selectbox("Profil / Paket MikroTik", options=daftar_profil, index=index_paket)
                     new_hp = st.text_input("No HP / WhatsApp", value=no_hp)
                     new_alamat = st.text_input("Alamat", value=alamat)
                     new_iuran = st.number_input("Tarif Iuran (Rp)", value=float(iuran_pokok), step=5000.0)
                     
                     update_submit = st.form_submit_button("💾 Simpan Perubahan")
                     if update_submit:
-                        # 1. Update ke Database SQLite Lokal
                         conn = sqlite3.connect("rt_rw_net.db")
                         cursor = conn.cursor()
                         cursor.execute("""
@@ -405,7 +420,6 @@ if menu == "Data & Rekap Pelanggan":
                         conn.commit()
                         conn.close()
 
-                        # 2. Coba Update Profil PPPoE langsung ke MikroTik
                         connection, client = koneksi_mikrotik()
                         if client:
                             try:
