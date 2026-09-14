@@ -1,3 +1,5 @@
 streamlit
-pandas
-routeros_api
+PyMuPDF
+reportlab
+routeros-api
+Pillow
