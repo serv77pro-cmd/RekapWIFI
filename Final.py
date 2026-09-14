@@ -34,13 +34,6 @@ st.markdown("""
         text-align: center;
         margin-bottom: 20px;
     }
-    .card-box {
-        background-color: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 10px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -168,7 +161,6 @@ if menu == "Data & Rekap Pelanggan":
 
     total_pelanggan = len(rows)
     total_terkumpul = sum([(r[6]+r[7]+r[8]) for r in rows if r[9] == "Sudah Bayar"])
-    libur_bayar = sum([1 for r in rows if r[9] == "Sudah Bayar"])
     total_potensi = sum([(r[6]+r[7]+r[8]) for r in rows])
 
     col1, col2, col3 = st.columns(3)
@@ -199,11 +191,11 @@ if menu == "Data & Rekap Pelanggan":
             st.markdown(f"""
                 <div style="background-color: #FFFFFF; border-left: 5px solid {'#16A34A' if status_bayar == 'Sudah Bayar' else '#DC2626'}; padding: 12px; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                     <b>{idx}. {alias if alias else nama}</b> &nbsp;|&nbsp; <code>ID: {pel_id}</code> &nbsp;|&nbsp; 📱 {no_hp}<br>
-                    📦 Paket: <b>{paket}</b> &nbsp;|&nbsp; 🏠 Alamat: {alamat} &nbsp;|&nbsp; 🏷️ Tagihan: <b>Rp {sub_total:,.0f}</b> &nbsp;|&nbsp; Status: {status_badge}
+                    📦 Paket/Profil MikroTik: <b>{paket}</b> &nbsp;|&nbsp; 🏠 Alamat: {alamat} &nbsp;|&nbsp; 🏷️ Tagihan: <b>Rp {sub_total:,.0f}</b> &nbsp;|&nbsp; Status: {status_badge}
                 </div>
             """, unsafe_allow_html=True)
 
-            c_aksi1, c_aksi2 = st.columns([2, 8])
+            c_aksi1, c_aksi2, c_aksi3 = st.columns([2, 2, 6])
             with c_aksi1:
                 if status_bayar != "Sudah Bayar":
                     if st.button("✅ Bayar", key=f"bayar_{pel_id}"):
@@ -227,8 +219,13 @@ if menu == "Data & Rekap Pelanggan":
                         st.rerun()
 
             with c_aksi2:
+                # Tombol untuk membuka form edit profil/paket
+                if st.button("✏️ Edit Paket", key=f"edit_btn_{pel_id}"):
+                    st.session_state[f"form_edit_{pel_id}"] = not st.session_state.get(f"form_edit_{pel_id}", False)
+
+            with c_aksi3:
                 if status_bayar == "Sudah Bayar":
-                    if st.button("📄 Cetak Kuitansi PDF", key=f"pdf_{pel_id}"):
+                    if st.button("📄 Cetak Kuitansi", key=f"pdf_{pel_id}"):
                         try:
                             sekarang = datetime.now()
                             tahun = sekarang.year
@@ -366,7 +363,6 @@ if menu == "Data & Rekap Pelanggan":
                             )
                             doc.build(story, onFirstPage=background_canvas, onLaterPages=background_canvas)
 
-                            # Konversi halaman PDF ke JPG via PyMuPDF (fitz)
                             pdf_document = fitz.open(nama_pdf)
                             page = pdf_document[0]
                             pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
@@ -376,7 +372,7 @@ if menu == "Data & Rekap Pelanggan":
                             st.success(f"Kuitansi berhasil dibuat!")
                             with open(nama_pdf, "rb") as pdf_file:
                                 st.download_button(
-                                    label="📥 Unduh File PDF Kuitansi",
+                                    label="📥 Unduh PDF Kuitansi",
                                     data=pdf_file,
                                     file_name=os.path.basename(nama_pdf),
                                     mime="application/pdf",
@@ -388,7 +384,46 @@ if menu == "Data & Rekap Pelanggan":
                         except Exception as e:
                             st.error(f"Gagal membuat kuitansi PDF: {e}")
 
-            st.markdown("<br>", unsafe_allow_html=True)
+            # Form Edit Paket & Data Pelanggan yang Muncul Saat Tombol Edit Diklik
+            if st.session_state.get(f"form_edit_{pel_id}", False):
+                with st.form(key=f"form_ubah_{pel_id}"):
+                    st.markdown(f"**Edit Data Pelanggan: {nama}**")
+                    new_alias = st.text_input("Nama Alias / Lengkap", value=alias)
+                    new_paket = st.text_input("Profil / Paket MikroTik", value=paket)
+                    new_hp = st.text_input("No HP / WhatsApp", value=no_hp)
+                    new_alamat = st.text_input("Alamat", value=alamat)
+                    new_iuran = st.number_input("Tarif Iuran (Rp)", value=float(iuran_pokok), step=5000.0)
+                    
+                    update_submit = st.form_submit_button("💾 Simpan Perubahan")
+                    if update_submit:
+                        # 1. Update ke Database SQLite Lokal
+                        conn = sqlite3.connect("rt_rw_net.db")
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE pelanggan SET alias = ?, paket = ?, no_hp = ?, alamat = ?, iuran = ? WHERE id = ?
+                        """, (new_alias, new_paket, new_hp, new_alamat, new_iuran, pel_id))
+                        conn.commit()
+                        conn.close()
+
+                        # 2. Coba Update Profil PPPoE langsung ke MikroTik
+                        connection, client = koneksi_mikrotik()
+                        if client:
+                            try:
+                                secrets = client.get_resource('/ppp/secret').get(name=nama)
+                                if secrets:
+                                    sec_id = secrets[0]['id']
+                                    client.get_resource('/ppp/secret').set(id=sec_id, profile=new_paket)
+                                    st.success("Profil PPPoE di MikroTik berhasil diperbarui!")
+                            except Exception as mk_err:
+                                st.warning(f"Data lokal tersimpan, tapi gagal update otomatis ke MikroTik: {mk_err}")
+                            finally:
+                                connection.disconnect()
+
+                        st.session_state[f"form_edit_{pel_id}"] = False
+                        st.success("Perubahan berhasil disimpan!")
+                        st.rerun()
+
+            st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
 
 # --- TAB 2: PENCATATAN KEUANGAN KAS ---
 elif menu == "Data Keuangan Kas":
