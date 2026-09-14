@@ -355,7 +355,7 @@ if menu == "Data & Rekap Pelanggan":
                                     file_name=os.path.basename(nama_pdf),
                                     mime="application/pdf",
                                     key=f"dl_pdf_{pel_id}"
-                                />
+                                )
                             if os.path.exists(nama_jpg):
                                 st.image(nama_jpg, caption=f"Pratinjau Kuitansi - {nama}", use_container_width=True)
 
